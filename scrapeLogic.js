@@ -1,8 +1,7 @@
-// --- FIX: Re-introduce puppeteer-extra and the stealth plugin ---
-const puppeteer = require("puppeteer-extra");
-const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+// Use puppeteer-extra to add the stealth plugin
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
-
 
 /**
  * Scrapes a single player's profile, clicks "Load more" repeatedly,
@@ -15,7 +14,8 @@ const scrapeLogic = async (playerID) => {
   console.log(`[SCRAPER] Launching browser for player: ${playerID}`);
 
   try {
-    // We can now remove the custom executablePath logic as puppeteer-extra handles it.
+    // --- FIX: REMOVED executablePath ---
+    // The Docker image is pre-configured. We let Puppeteer find the browser automatically.
     browser = await puppeteer.launch({
       headless: true,
       args: [
@@ -30,16 +30,16 @@ const scrapeLogic = async (playerID) => {
     const url = `https://tracker.ftgames.com/?id=${playerID}`;
     await page.goto(url, { waitUntil: 'networkidle0', timeout: 90000 });
 
-    const playerNameSelector = 'header > span.font-HEAD';
+    // Wait for the main player name to appear before doing anything else.
+    // This is a crucial check to ensure the page is loaded correctly.
     try {
-        await page.waitForSelector(playerNameSelector, { timeout: 30000 });
-        console.log(`[SCRAPER] Player profile for ${playerID} loaded successfully.`);
-    } catch (error) {
-        console.error(`[SCRAPER] Timed out waiting for player name element for player ${playerID}. The page may be blocked or failed to load.`);
-        throw new Error(`Could not find player name element. Scraping aborted.`);
+        await page.waitForSelector('header > span.font-HEAD', { timeout: 25000 });
+    } catch (e) {
+        throw new Error("Could not find player name element. The page might have changed or is blocking the scrape.");
     }
-
-    for (let i = 0; i < 400; i++) {
+    
+    // Loop to click "Load more" until it's no longer available
+    for (let i = 0; i < 400; i++) { // Safety break after 400 clicks
       try {
         const loadMoreButtonXPath = "//button[contains(text(), 'Load more')]";
         const buttonHandle = await page.waitForSelector('xpath/' + loadMoreButtonXPath, { timeout: 3000 });
@@ -47,7 +47,7 @@ const scrapeLogic = async (playerID) => {
         if (buttonHandle) {
           await buttonHandle.click();
           await page.waitForSelector('svg.animate-spin', { hidden: true, timeout: 15000 });
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await new Promise(resolve => setTimeout(resolve, 1500));
         } else {
           break; 
         }
@@ -56,7 +56,7 @@ const scrapeLogic = async (playerID) => {
         break; 
       }
     }
-
+    
     const extractedData = await page.evaluate(() => {
       const nameEl = document.querySelector('header > span.font-HEAD');
       const playerName = nameEl ? nameEl.textContent.trim() : '';
@@ -76,22 +76,17 @@ const scrapeLogic = async (playerID) => {
           processedOpponentIds.add(id);
         }
       });
-
       return { playerName, opponents };
     });
-    
-    if (!extractedData.playerName) {
-        console.warn(`[SCRAPER] Warning: Could not extract player name text for ${playerID}, though the header element was found.`);
-    }
 
     console.log(`[SCRAPER] Scraped ${extractedData.opponents.length} opponents for player "${extractedData.playerName}".`);
     return extractedData;
 
-  } catch (error) {
-      console.error(`[SCRAPER] A critical error occurred during the scrape for player ${playerID}:`, error.message);
-      throw error;
-  } 
-  finally {
+  } catch(e) {
+      console.error(`[SCRAPER] A critical error occurred during the scrape for player ${playerID}: ${e.message}`);
+      // Re-throw the error so the calling service knows it failed
+      throw e;
+  } finally {
     if (browser) {
       await browser.close();
       console.log(`[SCRAPER] Closed browser for player: ${playerID}`);
@@ -100,4 +95,3 @@ const scrapeLogic = async (playerID) => {
 };
 
 module.exports = { scrapeLogic };
-
