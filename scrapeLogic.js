@@ -109,8 +109,6 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
-// Import the core puppeteer library to dynamically find the correct browser path
-const puppeteerCore = require('puppeteer');
 
 /**
  * Scrapes a single player's profile, clicks "Load more" repeatedly,
@@ -123,13 +121,8 @@ const scrapeLogic = async (playerID) => {
   console.log(`[SCRAPER] Launching browser for player: ${playerID}`);
 
   try {
-    const executablePath = puppeteerCore.executablePath();
-
-    // --- NEW DIAGNOSTIC LOG ---
-    // This will print the exact path being used to the logs, helping us debug.
-    console.log(`[SCRAPER] Resolved browser executable path: ${executablePath}`);
-
-    browser = await puppeteer.launch({
+    // --- DEFINITIVE FIX: Replicate the launch logic from the working example ---
+    const launchOptions = {
       headless: true,
       args: [
         "--disable-setuid-sandbox",
@@ -137,15 +130,21 @@ const scrapeLogic = async (playerID) => {
         "--single-process",
         "--no-zygote",
       ],
-      executablePath: executablePath, // Use the dynamically found path
-    });
+      // This tells Puppeteer to use the path from the Dockerfile's environment variable when in production.
+      executablePath:
+        process.env.NODE_ENV === "production"
+          ? process.env.PUPPETEER_EXECUTABLE_PATH
+          : require('puppeteer').executablePath(),
+    };
+    
+    console.log(`[SCRAPER] Using executable path: ${launchOptions.executablePath || 'Default'}`);
+    browser = await puppeteer.launch(launchOptions);
 
     const page = await browser.newPage();
     const url = `https://tracker.ftgames.com/?id=${playerID}`;
     await page.goto(url, { waitUntil: 'networkidle0', timeout: 90000 });
 
     // Wait for the main player name to appear before doing anything else.
-    // This is a crucial check to ensure the page is loaded correctly.
     try {
         await page.waitForSelector('header > span.font-HEAD', { timeout: 25000 });
     } catch (e) {
@@ -174,17 +173,14 @@ const scrapeLogic = async (playerID) => {
     const extractedData = await page.evaluate(() => {
       const nameEl = document.querySelector('header > span.font-HEAD');
       const playerName = nameEl ? nameEl.textContent.trim() : '';
-
       const opponents = [];
       const processedOpponentIds = new Set();
       const opponentLinks = document.querySelectorAll('a.col-span-2');
-
       opponentLinks.forEach((el) => {
         const href = el.getAttribute('href');
         const id = href ? href.split('=')[1] : null;
         const nameEl = el.querySelector('p');
         const name = nameEl ? nameEl.textContent.trim() : '';
-
         if (id && name && !processedOpponentIds.has(id)) {
           opponents.push({ id, name });
           processedOpponentIds.add(id);
@@ -198,7 +194,6 @@ const scrapeLogic = async (playerID) => {
 
   } catch(e) {
       console.error(`[SCRAPER] A critical error occurred during the scrape for player ${playerID}: ${e.message}`);
-      // Re-throw the error so the calling service knows it failed
       throw e;
   } finally {
     if (browser) {
@@ -209,4 +204,3 @@ const scrapeLogic = async (playerID) => {
 };
 
 module.exports = { scrapeLogic };
-

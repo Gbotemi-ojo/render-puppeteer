@@ -1,5 +1,5 @@
 # Use a newer Puppeteer image to get a compatible Node.js version and security updates
-FROM ghcr.io/puppeteer/puppeteer:24.9.0
+FROM ghcr.io/puppeteer/puppeteer:19.7.2
 
 # --- FIX: REMOVED PUPPETEER_EXECUTABLE_PATH ---
 # The official Puppeteer image is pre-configured. The library will find the
