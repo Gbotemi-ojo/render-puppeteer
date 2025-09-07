@@ -1,9 +1,10 @@
 # Use a newer Puppeteer image to get a compatible Node.js version and security updates
 FROM ghcr.io/puppeteer/puppeteer:24.9.0
 
-# Environment variables to re-use the browser bundled with the image
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+# --- FIX: REMOVED PUPPETEER_EXECUTABLE_PATH ---
+# The official Puppeteer image is pre-configured. The library will find the
+# bundled browser automatically without this variable.
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 WORKDIR /usr/src/app
 
@@ -22,4 +23,3 @@ COPY . .
 
 # Command to run the application
 CMD [ "node", "index.js" ]
-
