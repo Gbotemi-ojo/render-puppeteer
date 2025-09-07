@@ -1,18 +1,20 @@
 {
-  "name": "puppeteer-render",
+  "name": "app2-scraper",
   "version": "1.0.0",
-  "description": "",
+  "description": "A dedicated scraper service using Puppeteer.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node index"
+    "start": "node index.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "dotenv": "^16.0.3",
-    "express": "^4.18.2",
-    "puppeteer": "^19.7.2"
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "puppeteer": "^24.9.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
   }
 }

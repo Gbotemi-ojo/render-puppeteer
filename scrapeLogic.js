@@ -1,4 +1,8 @@
-const puppeteer = require("puppeteer");
+// --- FIX: Re-introduce puppeteer-extra and the stealth plugin ---
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+puppeteer.use(StealthPlugin());
+
 
 /**
  * Scrapes a single player's profile, clicks "Load more" repeatedly,
@@ -11,6 +15,7 @@ const scrapeLogic = async (playerID) => {
   console.log(`[SCRAPER] Launching browser for player: ${playerID}`);
 
   try {
+    // We can now remove the custom executablePath logic as puppeteer-extra handles it.
     browser = await puppeteer.launch({
       headless: true,
       args: [
@@ -19,19 +24,12 @@ const scrapeLogic = async (playerID) => {
         "--single-process",
         "--no-zygote",
       ],
-      executablePath:
-        process.env.NODE_ENV === "production"
-          ? process.env.PUPPETEER_EXECUTABLE_PATH
-          : puppeteer.executablePath(),
     });
 
     const page = await browser.newPage();
     const url = `https://tracker.ftgames.com/?id=${playerID}`;
     await page.goto(url, { waitUntil: 'networkidle0', timeout: 90000 });
 
-    // --- FIX ---
-    // Explicitly wait for the player name element to be visible on the page.
-    // If this fails, it means the page isn't loaded correctly, and we should stop.
     const playerNameSelector = 'header > span.font-HEAD';
     try {
         await page.waitForSelector(playerNameSelector, { timeout: 30000 });
@@ -41,9 +39,7 @@ const scrapeLogic = async (playerID) => {
         throw new Error(`Could not find player name element. Scraping aborted.`);
     }
 
-
-    // Loop to click "Load more" until it's no longer available
-    for (let i = 0; i < 400; i++) { // Safety break after 400 clicks
+    for (let i = 0; i < 400; i++) {
       try {
         const loadMoreButtonXPath = "//button[contains(text(), 'Load more')]";
         const buttonHandle = await page.waitForSelector('xpath/' + loadMoreButtonXPath, { timeout: 3000 });
@@ -84,18 +80,15 @@ const scrapeLogic = async (playerID) => {
       return { playerName, opponents };
     });
     
-    // Add a check to warn if the name is still empty after a successful wait.
     if (!extractedData.playerName) {
         console.warn(`[SCRAPER] Warning: Could not extract player name text for ${playerID}, though the header element was found.`);
     }
-
 
     console.log(`[SCRAPER] Scraped ${extractedData.opponents.length} opponents for player "${extractedData.playerName}".`);
     return extractedData;
 
   } catch (error) {
       console.error(`[SCRAPER] A critical error occurred during the scrape for player ${playerID}:`, error.message);
-      // Re-throw the error to ensure the calling service knows about the failure.
       throw error;
   } 
   finally {
@@ -107,3 +100,4 @@ const scrapeLogic = async (playerID) => {
 };
 
 module.exports = { scrapeLogic };
+
