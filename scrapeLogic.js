@@ -2,6 +2,8 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
+// Import the core puppeteer library to dynamically find the correct browser path
+const puppeteerCore = require('puppeteer');
 
 /**
  * Scrapes a single player's profile, clicks "Load more" repeatedly,
@@ -14,8 +16,10 @@ const scrapeLogic = async (playerID) => {
   console.log(`[SCRAPER] Launching browser for player: ${playerID}`);
 
   try {
-    // --- FIX: REMOVED executablePath ---
-    // The Docker image is pre-configured. We let Puppeteer find the browser automatically.
+    // --- NEW FIX: Explicitly set the executablePath using the core library's helper ---
+    // This removes any ambiguity about where the browser is located inside the Docker container.
+    const executablePath = puppeteerCore.executablePath();
+
     browser = await puppeteer.launch({
       headless: true,
       args: [
@@ -24,6 +28,7 @@ const scrapeLogic = async (playerID) => {
         "--single-process",
         "--no-zygote",
       ],
+      executablePath: executablePath, // Use the dynamically found path
     });
 
     const page = await browser.newPage();
@@ -95,3 +100,4 @@ const scrapeLogic = async (playerID) => {
 };
 
 module.exports = { scrapeLogic };
+
