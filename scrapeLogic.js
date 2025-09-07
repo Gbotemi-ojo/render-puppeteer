@@ -1,5 +1,5 @@
 const puppeteer = require("puppeteer");
-const cheerio = require("cheerio");
+// const cheerio = require("cheerio"); // <-- Removed Cheerio dependency
 
 /**
  * Scrapes a single player's profile, clicks "Load more" repeatedly,
@@ -51,27 +51,40 @@ const scrapeLogic = async (playerID) => {
       }
     }
 
-    // After all content is loaded, extract the data
-    const html = await page.content();
-    const $ = cheerio.load(html);
+    // --- REPLACEMENT LOGIC ---
+    // Instead of exporting HTML to Cheerio, we use page.evaluate() 
+    // to run logic directly in the browser's DOM.
 
-    const playerName = $('header > span.font-HEAD').text().trim();
-    const opponents = [];
-    const processedOpponentIds = new Set();
+    const extractedData = await page.evaluate(() => {
+      // This code runs inside the browser context (it can use document.querySelector)
+      const nameEl = document.querySelector('header > span.font-HEAD');
+      const playerName = nameEl ? nameEl.textContent.trim() : '';
 
-    $('a.col-span-2').each((i, el) => {
-      const href = $(el).attr('href');
-      const id = href?.split('=')[1];
-      const name = $(el).find('p').text().trim();
+      const opponents = [];
+      const processedOpponentIds = new Set();
+      
+      // Select all opponent anchor tags
+      const opponentLinks = document.querySelectorAll('a.col-span-2');
 
-      if (id && name && !processedOpponentIds.has(id)) {
-        opponents.push({ id, name });
-        processedOpponentIds.add(id);
-      }
+      opponentLinks.forEach((el) => {
+        const href = el.getAttribute('href');
+        const id = href ? href.split('=')[1] : null;
+        
+        // Find the <p> tag within the link for the name
+        const nameEl = el.querySelector('p');
+        const name = nameEl ? nameEl.textContent.trim() : '';
+
+        if (id && name && !processedOpponentIds.has(id)) {
+          opponents.push({ id, name });
+          processedOpponentIds.add(id);
+        }
+      });
+
+      return { playerName, opponents };
     });
 
-    console.log(`[SCRAPER] Scraped ${opponents.length} opponents for player "${playerName}".`);
-    return { playerName, opponents };
+    console.log(`[SCRAPER] Scraped ${extractedData.opponents.length} opponents for player "${extractedData.playerName}".`);
+    return extractedData; // Return the data object directly from page.evaluate()
 
   } finally {
     if (browser) {
