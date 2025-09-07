@@ -1,49 +1,83 @@
 const puppeteer = require("puppeteer");
-require("dotenv").config();
+const cheerio = require("cheerio");
 
-const scrapeLogic = async (res) => {
-  const browser = await puppeteer.launch({
-    args: [
-      "--disable-setuid-sandbox",
-      "--no-sandbox",
-      "--single-process",
-      "--no-zygote",
-    ],
-    executablePath:
-      process.env.NODE_ENV === "production"
-        ? process.env.PUPPETEER_EXECUTABLE_PATH
-        : puppeteer.executablePath(),
-  });
+/**
+ * Scrapes a single player's profile, clicks "Load more" repeatedly,
+ * and returns the player's name and all opponents found.
+ * @param {string} playerID The ID of the player to scrape.
+ * @returns {Promise<{playerName: string, opponents: Array<{id: string, name: string}>}>}
+ */
+const scrapeLogic = async (playerID) => {
+  let browser = null;
+  console.log(`[SCRAPER] Launching browser for player: ${playerID}`);
+
   try {
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        "--disable-setuid-sandbox",
+        "--no-sandbox",
+        "--single-process",
+        "--no-zygote",
+      ],
+      executablePath:
+        process.env.NODE_ENV === "production"
+          ? process.env.PUPPETEER_EXECUTABLE_PATH
+          : puppeteer.executablePath(),
+    });
+
     const page = await browser.newPage();
+    const url = `https://tracker.ftgames.com/?id=${playerID}`;
+    await page.goto(url, { waitUntil: 'networkidle0', timeout: 90000 });
 
-    // 1. GO TO THE TEST WEBSITE
-    await page.goto("https://quotes.toscrape.com/");
+    // Loop to click "Load more" until it's no longer available
+    for (let i = 0; i < 400; i++) { // Safety break after 400 clicks
+      try {
+        const loadMoreButtonXPath = "//button[contains(text(), 'Load more')]";
+        const buttonHandle = await page.waitForSelector('xpath/' + loadMoreButtonXPath, { timeout: 3000 });
 
-    // Set screen size (optional, but good practice)
-    await page.setViewport({ width: 1080, height: 1024 });
+        if (buttonHandle) {
+          await buttonHandle.click();
+          // Wait for the loading spinner to disappear
+          await page.waitForSelector('svg.animate-spin', { hidden: true, timeout: 15000 });
+          // Add a small artificial delay to ensure content loads
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        } else {
+          break; // Exit loop if button is not found
+        }
+      } catch {
+        console.log(`[SCRAPER] No more 'Load more' buttons for player ${playerID}.`);
+        break; // Exit loop on timeout or other errors
+      }
+    }
 
-    // 2. DEFINE A STABLE SELECTOR
-    // We want the text (class="text") inside the first quote container (class="quote")
-    const selector = ".quote .text";
+    // After all content is loaded, extract the data
+    const html = await page.content();
+    const $ = cheerio.load(html);
 
-    // 3. WAIT FOR THE ELEMENT
-    await page.waitForSelector(selector);
+    const playerName = $('header > span.font-HEAD').text().trim();
+    const opponents = [];
+    const processedOpponentIds = new Set();
 
-    // 4. EXTRACT THE TEXT
-    // page.$eval finds the *first* element matching the selector and runs the function on it
-    const firstQuote = await page.$eval(selector, (el) => el.textContent);
+    $('a.col-span-2').each((i, el) => {
+      const href = $(el).attr('href');
+      const id = href?.split('=')[1];
+      const name = $(el).find('p').text().trim();
 
-    // 5. SEND THE RESULT
-    const logStatement = `Found quote: ${firstQuote}`;
-    console.log(logStatement);
-    res.send(logStatement);
+      if (id && name && !processedOpponentIds.has(id)) {
+        opponents.push({ id, name });
+        processedOpponentIds.add(id);
+      }
+    });
 
-  } catch (e) {
-    console.error(e);
-    res.send(`Something went wrong while running Puppeteer: ${e}`);
+    console.log(`[SCRAPER] Scraped ${opponents.length} opponents for player "${playerName}".`);
+    return { playerName, opponents };
+
   } finally {
-    await browser.close();
+    if (browser) {
+      await browser.close();
+      console.log(`[SCRAPER] Closed browser for player: ${playerID}`);
+    }
   }
 };
 
