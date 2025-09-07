@@ -1,5 +1,4 @@
 const puppeteer = require("puppeteer");
-// const cheerio = require("cheerio"); // <-- Removed Cheerio dependency
 
 /**
  * Scrapes a single player's profile, clicks "Load more" repeatedly,
@@ -30,6 +29,19 @@ const scrapeLogic = async (playerID) => {
     const url = `https://tracker.ftgames.com/?id=${playerID}`;
     await page.goto(url, { waitUntil: 'networkidle0', timeout: 90000 });
 
+    // --- FIX ---
+    // Explicitly wait for the player name element to be visible on the page.
+    // If this fails, it means the page isn't loaded correctly, and we should stop.
+    const playerNameSelector = 'header > span.font-HEAD';
+    try {
+        await page.waitForSelector(playerNameSelector, { timeout: 30000 });
+        console.log(`[SCRAPER] Player profile for ${playerID} loaded successfully.`);
+    } catch (error) {
+        console.error(`[SCRAPER] Timed out waiting for player name element for player ${playerID}. The page may be blocked or failed to load.`);
+        throw new Error(`Could not find player name element. Scraping aborted.`);
+    }
+
+
     // Loop to click "Load more" until it's no longer available
     for (let i = 0; i < 400; i++) { // Safety break after 400 clicks
       try {
@@ -38,39 +50,28 @@ const scrapeLogic = async (playerID) => {
 
         if (buttonHandle) {
           await buttonHandle.click();
-          // Wait for the loading spinner to disappear
           await page.waitForSelector('svg.animate-spin', { hidden: true, timeout: 15000 });
-          // Add a small artificial delay to ensure content loads
           await new Promise(resolve => setTimeout(resolve, 2000));
         } else {
-          break; // Exit loop if button is not found
+          break; 
         }
       } catch {
         console.log(`[SCRAPER] No more 'Load more' buttons for player ${playerID}.`);
-        break; // Exit loop on timeout or other errors
+        break; 
       }
     }
 
-    // --- REPLACEMENT LOGIC ---
-    // Instead of exporting HTML to Cheerio, we use page.evaluate() 
-    // to run logic directly in the browser's DOM.
-
     const extractedData = await page.evaluate(() => {
-      // This code runs inside the browser context (it can use document.querySelector)
       const nameEl = document.querySelector('header > span.font-HEAD');
       const playerName = nameEl ? nameEl.textContent.trim() : '';
 
       const opponents = [];
       const processedOpponentIds = new Set();
-      
-      // Select all opponent anchor tags
       const opponentLinks = document.querySelectorAll('a.col-span-2');
 
       opponentLinks.forEach((el) => {
         const href = el.getAttribute('href');
         const id = href ? href.split('=')[1] : null;
-        
-        // Find the <p> tag within the link for the name
         const nameEl = el.querySelector('p');
         const name = nameEl ? nameEl.textContent.trim() : '';
 
@@ -82,11 +83,22 @@ const scrapeLogic = async (playerID) => {
 
       return { playerName, opponents };
     });
+    
+    // Add a check to warn if the name is still empty after a successful wait.
+    if (!extractedData.playerName) {
+        console.warn(`[SCRAPER] Warning: Could not extract player name text for ${playerID}, though the header element was found.`);
+    }
+
 
     console.log(`[SCRAPER] Scraped ${extractedData.opponents.length} opponents for player "${extractedData.playerName}".`);
-    return extractedData; // Return the data object directly from page.evaluate()
+    return extractedData;
 
-  } finally {
+  } catch (error) {
+      console.error(`[SCRAPER] A critical error occurred during the scrape for player ${playerID}:`, error.message);
+      // Re-throw the error to ensure the calling service knows about the failure.
+      throw error;
+  } 
+  finally {
     if (browser) {
       await browser.close();
       console.log(`[SCRAPER] Closed browser for player: ${playerID}`);
